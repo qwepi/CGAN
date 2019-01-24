@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import argparse
 import sys
 import math
@@ -11,11 +12,11 @@ from net import *
  
 parser = argparse.ArgumentParser(description='')
  
-parser.add_argument("--test_picture_path", default='./dataset/test_picture/', help="path of test datas.")#网络测试输入的图片路径
-parser.add_argument("--test_label_path", default='./dataset/test_label/', help="path of test datas.") #网络测试输入的标签路径
+parser.add_argument("--test_picture_path", default='./testset/layout_test/', help="path of test datas.")#网络测试输入的图片路径
+parser.add_argument("--test_label_path", default='./testset/source_test/', help="path of test datas.") #网络测试输入的标签路径
 parser.add_argument("--image_size", type=int, default=256, help="load image size") #网络输入的尺度
 parser.add_argument("--test_picture_format", default='.png', help="format of test pictures.") #网络测试输入的图片的格式
-parser.add_argument("--test_label_format", default='.jpg', help="format of test labels.") #网络测试时读取的标签的格式
+parser.add_argument("--test_label_format", default='.PNG', help="format of test labels.") #网络测试时读取的标签的格式
 parser.add_argument("--snapshots", default='./snapshots/',help="Path of Snapshots") #读取训练好的模型参数的路径
 parser.add_argument("--out_dir", default='./test_output/',help="Output Folder") #保存网络测试输出图片的路径
  
@@ -42,7 +43,9 @@ def main():
     if not os.path.exists(args.out_dir): #如果保存测试结果的文件夹不存在则创建
         os.makedirs(args.out_dir)
  
-    test_picture_list = glob.glob(os.path.join(args.test_picture_path, "*")) #得到测试输入图像路径名称列表
+    test_picture_list = glob.glob(os.path.join(args.test_label_path, "*")) #得到测试输入图像路径名称列表
+    #Ying
+    # 以source 为准
     test_picture = tf.placeholder(tf.float32, shape=[1, 256, 256, 3], name='test_picture') #测试输入的图像
  
     gen_label = generator(image=test_picture, gf_dim=64, reuse=False, name='generator') #得到生成器的生成结果
@@ -60,6 +63,8 @@ def main():
     for step in range(len(test_picture_list)):
         picture_name, _ = os.path.splitext(os.path.basename(test_picture_list[step])) #得到一张网络测试的输入图像名字
 	#读取一张测试图片，一张标签，以及相应的高和宽
+        #delete the layout in picture_name to feed into ImageReader
+        #newname = picture_name.replace('_layout','')
         picture_resize, label_resize, picture_height, picture_width = ImageReader(file_name=picture_name,
                                                                                   picture_path=args.test_picture_path,
                                                                                   label_path=args.test_label_path,

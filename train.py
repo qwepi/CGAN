@@ -31,9 +31,9 @@ parser.add_argument("--save_pred_every", type=int, default=5000, help="times to 
 parser.add_argument("--lamda_l1_weight", type=float, default=0.0, help="L1 lamda") #训练中L1_Loss前的乘数
 parser.add_argument("--lamda_gan_weight", type=float, default=1.0, help="GAN lamda") #训练中GAN_Loss前的乘数
 parser.add_argument("--train_picture_format", default='.png', help="format of training datas.") #网络训练输入的图片的格式(图片在CGAN中被当做条件)
-parser.add_argument("--train_label_format", default='.jpg', help="format of training labels.") #网络训练输入的标签的格式(标签在CGAN中被当做真样本)
-parser.add_argument("--train_picture_path", default='./dataset/train_picture/', help="path of training datas.") #网络训练输入的图片路径
-parser.add_argument("--train_label_path", default='./dataset/train_label/', help="path of training labels.") #网络训练输入的标签路径
+parser.add_argument("--train_label_format", default='.PNG', help="format of training labels.") #网络训练输入的标签的格式(标签在CGAN中被当做真样本)
+parser.add_argument("--train_picture_path", default='./layout_collected/', help="path of training datas.") #网络训练输入的图片路径
+parser.add_argument("--train_label_path", default='./source_collected/', help="path of training labels.") #网络训练输入的标签路径
  
 args = parser.parse_args() #用来解析命令行参数
 EPS = 1e-12 #EPS用于保证log函数里面的参数大于零
@@ -68,7 +68,10 @@ def main(): #训练程序的主函数
         os.makedirs(args.snapshot_dir)
     if not os.path.exists(args.out_dir): #如果保存训练中可视化输出的文件夹不存在则创建
         os.makedirs(args.out_dir)
-    train_picture_list = glob.glob(os.path.join(args.train_picture_path, "*")) #得到训练输入图像路径名称列表
+    #train_picture_list = glob.glob(os.path.join(args.train_picture_path, "*")) #得到训练输入图像路径名称列表
+    train_picture_list = glob.glob(os.path.join(args.train_label_path, "*")) #得到训练输入图像路径名称列表
+    print('train_picture_num =',len(train_picture_list))
+    # use label to get layout, because we have more layout figures
     tf.set_random_seed(args.random_seed) #初始一下随机数
     train_picture = tf.placeholder(tf.float32,shape=[1, args.image_size, args.image_size, 3],name='train_picture') #输入的训练图像
     train_label = tf.placeholder(tf.float32,shape=[1, args.image_size, args.image_size, 3],name='train_label') #输入的与训练图像匹配的标签

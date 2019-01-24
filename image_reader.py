@@ -1,12 +1,16 @@
+# -*- coding: utf-8 -*-
 import os
 import numpy as np
 import tensorflow as tf
 import cv2
+import pdb
  
 #读取图片的函数，接收六个参数
 #输入参数分别是图片名，图片路径，标签路径，图片格式，标签格式，需要调整的尺寸大小
-def ImageReader(file_name, picture_path, label_path, picture_format = ".png", label_format = ".jpg", size = 256):
-    picture_name = picture_path + file_name + picture_format #得到图片名称和路径
+def ImageReader(file_name, picture_path, label_path, picture_format = ".png", label_format = ".PNG", size = 256):
+    #picture_name = picture_path + file_name + picture_format #得到图片名称和路径
+    #pdb.set_trace()
+    picture_name = picture_path + file_name + '_layout'+picture_format #得到图片名称和路径
     label_name = label_path + file_name + label_format #得到标签名称和路径
     picture = cv2.imread(picture_name, 1) #读取图片
     label = cv2.imread(label_name, 1) #读取标签
