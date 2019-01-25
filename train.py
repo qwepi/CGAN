@@ -15,7 +15,10 @@ import cv2
  
 from image_reader import *
 from net import *
- 
+from collections import OrderedDict
+from keras.optimizers improt Adam
+
+
 parser = argparse.ArgumentParser(description='')
  
 parser.add_argument("--snapshot_dir", default='./snapshots', help="path of snapshots") #保存模型的路径
@@ -36,7 +39,7 @@ parser.add_argument("--train_picture_path", default='./layout_collected/', help=
 parser.add_argument("--train_label_path", default='./source_collected/', help="path of training labels.") #网络训练输入的标签路径
 #Ying
 # use unrolling GAN to avoid model collapse
-parse.add_argument("--unrolling_steps", type = int, default=5, help="unrolling steps")#define the unrolling steps
+parser.add_argument("--unrolling_steps", type = int, default=5, help="unrolling steps")#define the unrolling steps
  
 args = parser.parse_args() #用来解析命令行参数
 EPS = 1e-12 #EPS用于保证log函数里面的参数大于零
@@ -137,11 +140,20 @@ def main(): #训练程序的主函数
     g_vars = [v for v in tf.trainable_variables() if 'generator' in v.name] #所有生成器的可训练参数
     d_vars = [v for v in tf.trainable_variables() if 'discriminator' in v.name] #所有判别器的可训练参数
  
-    d_optim = tf.train.AdamOptimizer(args.base_lr, beta1=args.beta1) #判别器训练器
-    g_optim = tf.train.AdamOptimizer(args.base_lr, beta1=args.beta1) #生成器训练器
+    #d_optim = tf.train.AdamOptimizer(args.base_lr, beta1=args.beta1) #判别器训练器
+    #g_optim = tf.train.AdamOptimizer(args.base_lr, beta1=args.beta1) #生成器训练器
  
-    d_grads_and_vars = d_optim.compute_gradients(dis_loss, var_list=d_vars) #计算判别器参数梯度
-    d_train = d_optim.apply_gradients(d_grads_and_vars) #更新判别器参数
+    #updates = d_optim.get_updates(d_vars,[],dis_loss)
+    
+    #d_grads_and_vars = d_optim.compute_gradients(dis_loss, var_list=d_vars) #计算判别器参数梯度
+    #d_train = d_optim.apply_gradients(d_grads_and_vars) #更新判别器参数
+    
+    # Vanilla discriminator update
+    d_opt = Adam(lr=arg.base_br, beta_1=args.beta1)
+    updates = d_opt.get_updates(d_vars, [], dis_loss)
+    d_train_op = tf.group(*updates, name="d_train_op")
+
+    #updates = d_optim.get_updates(d_vars,[],dis_loss)
     #g_grads_and_vars = g_optim.compute_gradients(gen_loss, var_list=g_vars) #计算生成器参数梯度
     #g_train = g_optim.apply_gradients(g_grads_and_vars) #更新生成器参数
  
@@ -151,7 +163,7 @@ def main(): #训练程序的主函数
     #unrolled GAN
     if args.unrolling_steps > 0:
         # get dictionary mapping from variables to their update value after one optimization step
-        update_dict = extract_update_dict(d_train)
+        update_dict = extract_update_dict(updates)
         cur_update_dict = update_dict
         for i in xrange(args.unrolling_steps - 1):
             # Compute variable updates given the previous iteration's updated variable
@@ -164,9 +176,10 @@ def main(): #训练程序的主函数
     # Optimize the generator on the unrolled loss
     #g_train_opt = tf.train.AdamOptimizer(params['gen_learning_rate'], beta1=params['beta1'], epsilon=params['epsilon'])
     #g_train_op = g_train_opt.minimize(-unrolled_loss, var_list=gen_vars)
+    g_optim = tf.train.AdamOptimizer(args.base_lr, beta1=args.beta1) #生成器训练器
     g_grads_and_vars = g_optim.compute_gradients(-unrolled_loss, var_list=g_vars) #计算生成器参数梯度
     g_train = g_optim.apply_gradients(g_grads_and_vars) #更新生成器参数
-    train_op = tf.group(d_train, g_train) #train_op表示了参数更新操作
+    train_op = tf.group(d_train_op, g_train) #train_op表示了参数更新操作
  
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True #设定显存不超量使用
