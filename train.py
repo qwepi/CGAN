@@ -16,7 +16,7 @@ import cv2
 from image_reader import *
 from net import *
 from collections import OrderedDict
-from keras.optimizers improt Adam
+from keras.optimizers import Adam
 
 
 parser = argparse.ArgumentParser(description='')
@@ -149,7 +149,7 @@ def main(): #训练程序的主函数
     #d_train = d_optim.apply_gradients(d_grads_and_vars) #更新判别器参数
     
     # Vanilla discriminator update
-    d_opt = Adam(lr=arg.base_br, beta_1=args.beta1)
+    d_opt = Adam(lr=args.base_lr, beta_1=args.beta1)
     updates = d_opt.get_updates(d_vars, [], dis_loss)
     d_train_op = tf.group(*updates, name="d_train_op")
 
