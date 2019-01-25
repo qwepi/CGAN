@@ -34,6 +34,9 @@ parser.add_argument("--train_picture_format", default='.png', help="format of tr
 parser.add_argument("--train_label_format", default='.PNG', help="format of training labels.") #网络训练输入的标签的格式(标签在CGAN中被当做真样本)
 parser.add_argument("--train_picture_path", default='./layout_collected/', help="path of training datas.") #网络训练输入的图片路径
 parser.add_argument("--train_label_path", default='./source_collected/', help="path of training labels.") #网络训练输入的标签路径
+#Ying
+# use unrolling GAN to avoid model collapse
+parse.add_argument("--unrolling_steps", type = int, default=5, help="unrolling steps")#define the unrolling steps
  
 args = parser.parse_args() #用来解析命令行参数
 EPS = 1e-12 #EPS用于保证log函数里面的参数大于零
@@ -63,6 +66,43 @@ def get_write_picture(picture, gen_label, label, height, width): #get_write_pict
 def l1_loss(src, dst): #定义l1_loss
     return tf.reduce_mean(tf.abs(src - dst))
  
+#Ying 
+#unrolled GAN
+def extract_update_dict(update_ops):
+    """Extract variables and their new values from Assign and AssignAdd ops.
+    
+    Args:
+        update_ops: list of Assign and AssignAdd ops, typically computed using Keras' opt.get_updates()
+
+    Returns:
+        dict mapping from variable values to their updated value
+    """
+    name_to_var = {v.name: v for v in tf.global_variables()}
+    updates = OrderedDict()
+    for update in update_ops:
+        var_name = update.op.inputs[0].name
+        var = name_to_var[var_name]
+        value = update.op.inputs[1]
+        if update.op.type == 'Assign':
+            updates[var.value()] = value
+        elif update.op.type == 'AssignAdd':
+            updates[var.value()] = var + value
+        else:
+            raise ValueError("Update op type (%s) must be of type Assign or AssignAdd"%update_op.op.type)
+    return updates
+
+_graph_replace = tf.contrib.graph_editor.graph_replace
+
+def remove_original_op_attributes(graph):
+    """Remove _original_op attribute from all operations in a graph."""
+    for op in graph.get_operations():
+        op._original_op = None
+        
+def graph_replace(*args, **kwargs):
+    """Monkey patch graph_replace so that it works with TF 1.0"""
+    remove_original_op_attributes(tf.get_default_graph())
+    return _graph_replace(*args, **kwargs)
+
 def main(): #训练程序的主函数
     if not os.path.exists(args.snapshot_dir): #如果保存模型参数的文件夹不存在则创建
         os.makedirs(args.snapshot_dir)
@@ -88,6 +128,9 @@ def main(): #训练程序的主函数
  
     gen_loss_sum = tf.summary.scalar("gen_loss", gen_loss) #记录生成器loss的日志
     dis_loss_sum = tf.summary.scalar("dis_loss", dis_loss) #记录判别器loss的日志
+
+    
+
  
     summary_writer = tf.summary.FileWriter(args.snapshot_dir, graph=tf.get_default_graph()) #日志记录器
  
@@ -99,10 +142,32 @@ def main(): #训练程序的主函数
  
     d_grads_and_vars = d_optim.compute_gradients(dis_loss, var_list=d_vars) #计算判别器参数梯度
     d_train = d_optim.apply_gradients(d_grads_and_vars) #更新判别器参数
-    g_grads_and_vars = g_optim.compute_gradients(gen_loss, var_list=g_vars) #计算生成器参数梯度
-    g_train = g_optim.apply_gradients(g_grads_and_vars) #更新生成器参数
+    #g_grads_and_vars = g_optim.compute_gradients(gen_loss, var_list=g_vars) #计算生成器参数梯度
+    #g_train = g_optim.apply_gradients(g_grads_and_vars) #更新生成器参数
  
+    #train_op = tf.group(d_train, g_train) #train_op表示了参数更新操作
+    
+    #Ying
+    #unrolled GAN
+    if args.unrolling_steps > 0:
+        # get dictionary mapping from variables to their update value after one optimization step
+        update_dict = extract_update_dict(d_train)
+        cur_update_dict = update_dict
+        for i in xrange(args.unrolling_steps - 1):
+            # Compute variable updates given the previous iteration's updated variable
+            cur_update_dict = graph_replace(update_dict, cur_update_dict)
+            # Final unrolled loss uses the parameters at the last time step
+        unrolled_loss = graph_replace(dis_loss, cur_update_dict)
+    else:
+        unrolled_loss = dis_loss
+
+    # Optimize the generator on the unrolled loss
+    #g_train_opt = tf.train.AdamOptimizer(params['gen_learning_rate'], beta1=params['beta1'], epsilon=params['epsilon'])
+    #g_train_op = g_train_opt.minimize(-unrolled_loss, var_list=gen_vars)
+    g_grads_and_vars = g_optim.compute_gradients(-unrolled_loss, var_list=g_vars) #计算生成器参数梯度
+    g_train = g_optim.apply_gradients(g_grads_and_vars) #更新生成器参数
     train_op = tf.group(d_train, g_train) #train_op表示了参数更新操作
+ 
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True #设定显存不超量使用
     sess = tf.Session(config=config) #新建会话层
@@ -113,6 +178,8 @@ def main(): #训练程序的主函数
     saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=50) #模型保存器
  
     counter = 0 #counter记录训练步数
+    #Ying
+    fs = [] #record loss
  
     for epoch in range(args.epoch): #训练epoch数
         shuffle(train_picture_list) #每训练一个epoch，就打乱一下输入的顺序
@@ -131,12 +198,21 @@ def main(): #训练程序的主函数
                 gen_loss_sum_value, discriminator_sum_value = sess.run([gen_loss_sum, dis_loss_sum], feed_dict=feed_dict)
                 summary_writer.add_summary(gen_loss_sum_value, counter)
                 summary_writer.add_summary(discriminator_sum_value, counter)
+                #Ying
+                #log to record loss is useless, try a new way
+                fs.append([counter,gen_loss_sum_value,discriminator_sum_value])
+
             if counter % args.write_pred_every == 0: #每过write_pred_every次写一下训练的可视化结果
                 gen_label_value = sess.run(gen_label, feed_dict=feed_dict) #run出生成器的输出
                 write_image = get_write_picture(picture_resize, gen_label_value, label_resize, picture_height, picture_width) #得到训练的可视化结果
                 write_image_name = args.out_dir + "/out"+ str(counter) + ".png" #待保存的训练可视化结果路径与名称
                 cv2.imwrite(write_image_name, write_image) #保存训练的可视化结果
             print('epoch {:d} step {:d} \t gen_loss = {:.3f}, dis_loss = {:.3f}'.format(epoch, step, gen_loss_value, dis_loss_value))
+    #Ying
+    #save loss to get graph
+    loss_save = './loss_sum.txt'
+    np.savetxt(loss_save,fs)
+
     
 if __name__ == '__main__':
     main()
