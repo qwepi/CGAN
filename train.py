@@ -15,6 +15,7 @@ import cv2
  
 from image_reader import *
 from net import *
+import pdb
  
 parser = argparse.ArgumentParser(description='')
  
@@ -52,7 +53,7 @@ def cv_inv_proc(img): #cv_inv_proc函数将读取图片时归一化的图片还�
  
 def get_write_picture(picture, gen_label, label, height, width): #get_write_picture函数得到训练过程中的可视化结果
     picture_image = cv_inv_proc(picture) #还原输入的图像
-    gen_label_image = cv_inv_proc(gen_label[0]) #还原生成的样本
+    gen_label_image = cv_inv_proc(gen_label) #还原生成的样本
     label_image = cv_inv_proc(label) #还原真实的样本(标签)
     inv_picture_image = cv2.resize(picture_image, (width, height)) #还原图像的尺寸
     inv_gen_label_image = cv2.resize(gen_label_image, (width, height)) #还原生成的样本的尺寸
@@ -73,10 +74,11 @@ def main(): #训练程序的主函数
     print('train_picture_num =',len(train_picture_list))
     # use label to get layout, because we have more layout figures
     tf.set_random_seed(args.random_seed) #初始一下随机数
-    train_picture = tf.placeholder(tf.float32,shape=[1, args.image_size, args.image_size, 3],name='train_picture') #输入的训练图像
-    train_label = tf.placeholder(tf.float32,shape=[1, args.image_size, args.image_size, 3],name='train_label') #输入的与训练图像匹配的标签
+    train_picture = tf.placeholder(tf.float32,shape=[None, args.image_size, args.image_size, 3],name='train_picture') #输入的训练图像
+    train_label = tf.placeholder(tf.float32,shape=[None, args.image_size, args.image_size, 3],name='train_label') #输入的与训练图像匹配的标签
+    batchsize = tf.placeholder(tf.int32,name='batchsize')
  
-    gen_label = generator(image=train_picture, gf_dim=64, reuse=False, name='generator') #得到生成器的输出
+    gen_label = generator(image=train_picture, gf_dim=64, reuse=False, name='generator',batchsize=batchsize) #得到生成器的输出
     dis_real = discriminator(image=train_picture, targets=train_label, df_dim=64, reuse=False, name="discriminator") #判别器返回的对真实标签的判别结果
     dis_fake = discriminator(image=train_picture, targets=gen_label, df_dim=64, reuse=True, name="discriminator") #判别器返回的对生成(虚假的)标签判别结果
  
@@ -113,30 +115,55 @@ def main(): #训练程序的主函数
     saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=50) #模型保存器
  
     counter = 0 #counter记录训练步数
- 
-    for epoch in range(args.epoch): #训练epoch数
-        shuffle(train_picture_list) #每训练一个epoch，就打乱一下输入的顺序
-        for step in range(len(train_picture_list)): #每个训练epoch中的训练step数
-            counter += 1
-            picture_name, _ = os.path.splitext(os.path.basename(train_picture_list[step])) #获取不包含路径和格式的输入图片名称
-	    #读取一张训练图片，一张训练标签，以及相应的高和宽
-            picture_resize, label_resize, picture_height, picture_width = ImageReader(file_name=picture_name, picture_path=args.train_picture_path, label_path=args.train_label_path, picture_format = args.train_picture_format, label_format = args.train_label_format, size = args.image_size)
-            batch_picture = np.expand_dims(np.array(picture_resize).astype(np.float32), axis = 0) #填充维度
-            batch_label = np.expand_dims(np.array(label_resize).astype(np.float32), axis = 0) #填充维度
-            feed_dict = { train_picture : batch_picture, train_label : batch_label } #构造feed_dict
-            gen_loss_value, dis_loss_value, _ = sess.run([gen_loss, dis_loss, train_op], feed_dict=feed_dict) #得到每个step中的生成器和判别器loss
-            if counter % args.save_pred_every == 0: #每过save_pred_every次保存模型
-                save(saver, sess, args.snapshot_dir, counter)
-            if counter % args.summary_pred_every == 0: #每过summary_pred_every次保存训练日志
-                gen_loss_sum_value, discriminator_sum_value = sess.run([gen_loss_sum, dis_loss_sum], feed_dict=feed_dict)
-                summary_writer.add_summary(gen_loss_sum_value, counter)
-                summary_writer.add_summary(discriminator_sum_value, counter)
-            if counter % args.write_pred_every == 0: #每过write_pred_every次写一下训练的可视化结果
-                gen_label_value = sess.run(gen_label, feed_dict=feed_dict) #run出生成器的输出
-                write_image = get_write_picture(picture_resize, gen_label_value, label_resize, picture_height, picture_width) #得到训练的可视化结果
-                write_image_name = args.out_dir + "/out"+ str(counter) + ".png" #待保存的训练可视化结果路径与名称
-                cv2.imwrite(write_image_name, write_image) #保存训练的可视化结果
-            print('epoch {:d} step {:d} \t gen_loss = {:.3f}, dis_loss = {:.3f}'.format(epoch, step, gen_loss_value, dis_loss_value))
+    batch_size = 32
+    train_picture_list = np.asarray(train_picture_list)
+    num_whole = len(train_picture_list)
+    gen_loss_value_save = []
+    dis_loss_value_save = []
     
+ 
+    for epoch in range(args.epoch*num_whole*batch_size): #训练epoch数
+        #shuffle(train_picture_list) #每训练一个epoch，就打乱一下输入的顺序
+        p_chose = train_picture_list[(np.random.rand(batch_size)*len(train_picture_list)).astype(int)]
+
+        #for step in range(batchsize): #每个训练epoch中的训练step数
+        counter += 1
+        step = counter
+        #picture_name, _ = os.path.splitext(os.path.basename(train_picture_list[step])) #获取不包含路径和格式的输入图片名称
+        picture_whole = [os.path.splitext(os.path.basename(x)) for x in p_chose] #获取不包含路径和格式的输入图片名称
+        #pdb.set_trace()
+        picture_whole = np.array(picture_whole)
+        picture_name = picture_whole[:,0]
+        #pdb.set_trace()
+        #读取一张训练图片，一张训练标签，以及相应的高和宽
+        picture_resize, label_resize, picture_height, picture_width = ImageReader(filename=picture_name, picture_path=args.train_picture_path, label_path=args.train_label_path, picture_format = args.train_picture_format, label_format = args.train_label_format, size = args.image_size, batchsize= batch_size)
+        #batch_picture = np.expand_dims(np.array(picture_resize).astype(np.float32), axis = 0) #填充维度
+        #batch_label = np.expand_dims(np.array(label_resize).astype(np.float32), axis = 0) #填充维度
+        #feed_dict = { train_picture : batch_picture, train_label : batch_label } #构造feed_dict
+        feed_dict = { train_picture : picture_resize, train_label : label_resize, batchsize: batch_size} #构造feed_dict
+        gen_loss_value, dis_loss_value, _ = sess.run([gen_loss, dis_loss, train_op], feed_dict=feed_dict) #得到每个step中的生成器和判别器loss
+        if counter % args.save_pred_every == 0: #每过save_pred_every次保存模型
+            save(saver, sess, args.snapshot_dir, counter)
+        if counter % args.summary_pred_every == 0: #每过summary_pred_every次保存训练日志
+            gen_loss_sum_value, discriminator_sum_value = sess.run([gen_loss_sum, dis_loss_sum], feed_dict=feed_dict)
+            summary_writer.add_summary(gen_loss_sum_value, counter)
+            summary_writer.add_summary(discriminator_sum_value, counter)
+            gen_loss_value_save.append([counter,gen_loss_value])
+            dis_loss_value_save.append([counter,dis_loss_value])
+        if counter % args.write_pred_every == 0: #每过write_pred_every次写一下训练的可视化结果
+            gen_label_value = sess.run(gen_label, feed_dict=feed_dict) #run出生成器的输出
+            picture_resize = picture_resize[0]
+            gen_label_value = gen_label_value[0]
+            label_resize = label_resize[0]
+            write_image = get_write_picture(picture_resize, gen_label_value, label_resize, picture_height, picture_width) #得到训练的可视化结果
+            write_image_name = args.out_dir + "/out"+ str(counter) + ".png" #待保存的训练可视化结果路径与名称
+            cv2.imwrite(write_image_name, write_image) #保存训练的可视化结果
+        print('epoch {:d} step {:d} \t gen_loss = {:.3f}, dis_loss = {:.3f}'.format(epoch, step, gen_loss_value, dis_loss_value))
+    gen_loss_savename = "./train_out/gen_loss_whole.txt"
+    dis_loss_savename = "./train_out/dis_loss_whole.txt"
+    np.savetxt(gen_loss_savename,gen_loss_value_save)
+    np.savetxt(dis_loss_savename,dis_loss_value_save)
+    print("loss saved")
+
 if __name__ == '__main__':
     main()

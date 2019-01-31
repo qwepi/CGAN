@@ -12,6 +12,8 @@ from net import *
  
 parser = argparse.ArgumentParser(description='')
  
+#aarser.add_argument("--test_picture_path", default='./testset/layout_test/', help="path of test datas.")#网络测试输入的图片路径
+#parser.add_argument("--test_label_path", default='./testset/source_test/', help="path of test datas.") #网络测试输入的标签路径
 parser.add_argument("--test_picture_path", default='./testset/layout_test/', help="path of test datas.")#网络测试输入的图片路径
 parser.add_argument("--test_label_path", default='./testset/source_test/', help="path of test datas.") #网络测试输入的标签路径
 parser.add_argument("--image_size", type=int, default=256, help="load image size") #网络输入的尺度
@@ -47,8 +49,9 @@ def main():
     #Ying
     # 以source 为准
     test_picture = tf.placeholder(tf.float32, shape=[1, 256, 256, 3], name='test_picture') #测试输入的图像
+    batchsize = tf.placeholder(tf.int32, name='bathsize') #batchsize
  
-    gen_label = generator(image=test_picture, gf_dim=64, reuse=False, name='generator') #得到生成器的生成结果
+    gen_label = generator(image=test_picture, gf_dim=64, reuse=False, name='generator',batchsize=batchsize) #得到生成器的生成结果
  
     restore_var = [v for v in tf.global_variables() if 'generator' in v.name] #需要载入的已训练的模型参数
  
@@ -61,18 +64,21 @@ def main():
     saver.restore(sess, checkpoint) #导入模型参数
  
     for step in range(len(test_picture_list)):
+        #pdb.set_trace()
         picture_name, _ = os.path.splitext(os.path.basename(test_picture_list[step])) #得到一张网络测试的输入图像名字
 	#读取一张测试图片，一张标签，以及相应的高和宽
         #delete the layout in picture_name to feed into ImageReader
         #newname = picture_name.replace('_layout','')
-        picture_resize, label_resize, picture_height, picture_width = ImageReader(file_name=picture_name,
+        batch_size =1
+        picture_resize, label_resize, picture_height, picture_width = ImageReader(filename=picture_name,
                                                                                   picture_path=args.test_picture_path,
                                                                                   label_path=args.test_label_path,
                                                                                   picture_format=args.test_picture_format,
                                                                                   label_format=args.test_label_format,
-                                                                                  size=args.image_size)
+                                                                                  size=args.image_size,
+                                                                                  batchsize = batch_size)
         batch_picture = np.expand_dims(np.array(picture_resize).astype(np.float32), axis=0) #填充维度
-        feed_dict = {test_picture: batch_picture} #构造feed_dict
+        feed_dict = {test_picture: batch_picture, batchsize: batch_size} #构造feed_dict
         gen_label_value = sess.run(gen_label, feed_dict=feed_dict) #得到生成结果
         write_image = get_write_picture(picture_resize, gen_label_value, label_resize, picture_height, picture_width) #得到一张需要存的图像
         write_image_name = args.out_dir + picture_name + ".png" #为上述的图像构造保存路径与文件名

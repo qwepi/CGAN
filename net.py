@@ -2,7 +2,8 @@
 import numpy as np
 import tensorflow as tf
 import math
- 
+import pdb
+
 #构造可训练参数
 def make_var(name, shape, trainable = True):
     return tf.get_variable(name, shape, trainable = trainable)
@@ -30,13 +31,16 @@ def atrous_conv2d(input_, output_dim, kernel_size, dilation, padding = "SAME", n
         return output
  
 #定义反卷积层
-def deconv2d(input_, output_dim, kernel_size, stride, padding = "SAME", name = "deconv2d"):
+#Ying add batchsize to control back deconv2d
+def deconv2d(input_, output_dim, kernel_size, stride, padding = "SAME", name = "deconv2d",batchsize=4):
     input_dim = input_.get_shape()[-1]
     input_height = int(input_.get_shape()[1])
     input_width = int(input_.get_shape()[2])
+    #output_dim_first = int(input_.get_shape()[0])
     with tf.variable_scope(name):
         kernel = make_var(name = 'weights', shape = [kernel_size, kernel_size, output_dim, input_dim])
-        output = tf.nn.conv2d_transpose(input_, kernel, [1, input_height * 2, input_width * 2, output_dim], [1, 2, 2, 1], padding = "SAME")
+        #pdb.set_trace()
+        output = tf.nn.conv2d_transpose(input_, kernel, [batchsize, input_height * 2, input_width * 2, output_dim], [1, 2, 2, 1], padding = "SAME")
         return output
  
 #定义batchnorm(批次归一化)层
@@ -57,9 +61,10 @@ def lrelu(x, leak=0.2, name = "lrelu"):
     return tf.maximum(x, leak*x)
  
 #定义生成器，采用UNet架构，主要由8个卷积层和8个反卷积层组成
-def generator(image, gf_dim=64, reuse=False, name="generator"):
+def generator(image, gf_dim=64, batchsize = 4, reuse=False, name="generator"):
     input_dim = int(image.get_shape()[-1]) #获取输入通道
     dropout_rate = 0.5 #定义dropout的比例
+    #pdb.set_trace()
     with tf.variable_scope(name):
         if reuse:
             tf.get_variable_scope().reuse_variables()
@@ -83,35 +88,35 @@ def generator(image, gf_dim=64, reuse=False, name="generator"):
         e8 = batch_norm(conv2d(input_=lrelu(e7), output_dim=gf_dim*8, kernel_size=4, stride=2, name='g_e8_conv'), name='g_bn_e8')
  
 	#第一个反卷积层，输出尺度[1, 2, 2, 512]
-        d1 = deconv2d(input_=tf.nn.relu(e8), output_dim=gf_dim*8, kernel_size=4, stride=2, name='g_d1')
+        d1 = deconv2d(input_=tf.nn.relu(e8), output_dim=gf_dim*8, kernel_size=4, stride=2, name='g_d1',batchsize =batchsize)
         d1 = tf.nn.dropout(d1, dropout_rate) #随机扔掉一般的输出
         d1 = tf.concat([batch_norm(d1, name='g_bn_d1'), e7], 3)
 	#第二个反卷积层，输出尺度[1, 4, 4, 512]
-        d2 = deconv2d(input_=tf.nn.relu(d1), output_dim=gf_dim*8, kernel_size=4, stride=2, name='g_d2')
+        d2 = deconv2d(input_=tf.nn.relu(d1), output_dim=gf_dim*8, kernel_size=4, stride=2, name='g_d2',batchsize = batchsize)
         d2 = tf.nn.dropout(d2, dropout_rate) #随机扔掉一般的输出
         d2 = tf.concat([batch_norm(d2, name='g_bn_d2'), e6], 3)
 	#第三个反卷积层，输出尺度[1, 8, 8, 512]
-        d3 = deconv2d(input_=tf.nn.relu(d2), output_dim=gf_dim*8, kernel_size=4, stride=2, name='g_d3')
+        d3 = deconv2d(input_=tf.nn.relu(d2), output_dim=gf_dim*8, kernel_size=4, stride=2, name='g_d3',batchsize = batchsize)
         d3 = tf.nn.dropout(d3, dropout_rate) #随机扔掉一般的输出
         d3 = tf.concat([batch_norm(d3, name='g_bn_d3'), e5], 3)
 	#第四个反卷积层，输出尺度[1, 16, 16, 512]
-        d4 = deconv2d(input_=tf.nn.relu(d3), output_dim=gf_dim*8, kernel_size=4, stride=2, name='g_d4')
+        d4 = deconv2d(input_=tf.nn.relu(d3), output_dim=gf_dim*8, kernel_size=4, stride=2, name='g_d4',batchsize = batchsize)
         d4 = tf.concat([batch_norm(d4, name='g_bn_d4'), e4], 3)
 	#第五个反卷积层，输出尺度[1, 32, 32, 256]
-        d5 = deconv2d(input_=tf.nn.relu(d4), output_dim=gf_dim*4, kernel_size=4, stride=2, name='g_d5')
+        d5 = deconv2d(input_=tf.nn.relu(d4), output_dim=gf_dim*4, kernel_size=4, stride=2, name='g_d5', batchsize = batchsize)
         d5 = tf.concat([batch_norm(d5, name='g_bn_d5'), e3], 3)
 	#第六个反卷积层，输出尺度[1, 64, 64, 128]
-        d6 = deconv2d(input_=tf.nn.relu(d5), output_dim=gf_dim*2, kernel_size=4, stride=2, name='g_d6')
+        d6 = deconv2d(input_=tf.nn.relu(d5), output_dim=gf_dim*2, kernel_size=4, stride=2, name='g_d6', batchsize = batchsize)
         d6 = tf.concat([batch_norm(d6, name='g_bn_d6'), e2], 3)
 	#第七个反卷积层，输出尺度[1, 128, 128, 64]
-        d7 = deconv2d(input_=tf.nn.relu(d6), output_dim=gf_dim, kernel_size=4, stride=2, name='g_d7')
+        d7 = deconv2d(input_=tf.nn.relu(d6), output_dim=gf_dim, kernel_size=4, stride=2, name='g_d7', batchsize = batchsize)
         d7 = tf.concat([batch_norm(d7, name='g_bn_d7'), e1], 3)
 	#第八个反卷积层，输出尺度[1, 256, 256, 3]
-        d8 = deconv2d(input_=tf.nn.relu(d7), output_dim=input_dim, kernel_size=4, stride=2, name='g_d8')
+        d8 = deconv2d(input_=tf.nn.relu(d7), output_dim=input_dim, kernel_size=4, stride=2, name='g_d8', batchsize = batchsize)
         return tf.nn.tanh(d8)
- 
+
 #定义判别器
-def discriminator(image, targets, df_dim=64, reuse=False, name="discriminator"):
+def discriminator(image, targets, df_dim=64, reuse=False, name="discriminator", minibatch_layer=False):
     with tf.variable_scope(name):
         if reuse:
             tf.get_variable_scope().reuse_variables()
@@ -124,9 +129,55 @@ def discriminator(image, targets, df_dim=64, reuse=False, name="discriminator"):
         h1 = lrelu(batch_norm(conv2d(input_ = h0, output_dim = df_dim*2, kernel_size = 4, stride = 2, name='d_h1_conv'), name='d_bn1'))
 	#第3个卷积模块，输出尺度: 1*32*32*256
         h2 = lrelu(batch_norm(conv2d(input_ = h1, output_dim = df_dim*4, kernel_size = 4, stride = 2, name='d_h2_conv'), name='d_bn2'))
-	#第4个卷积模块，输出尺度: 1*32*32*512
-        h3 = lrelu(batch_norm(conv2d(input_ = h2, output_dim = df_dim*8, kernel_size = 4, stride = 1, name='d_h3_conv'), name='d_bn3'))
+       	#最后一个卷积模块，输出尺度: 1*32*32*1
+        output = conv2d(input_ = h2, output_dim = 1, kernel_size = 4, stride = 1, name='d_h3_conv')
+        dis_out = tf.sigmoid(output) #在输出之前经过sigmoid层，因为需要进行log运算
+        return dis_out
+
+#定义判别器
+#Ying minbatch: failed->.->.
+def discriminator_minbatch(image, targets, df_dim=64, reuse=False, name="discriminator", minibatch_layer=False):
+    with tf.variable_scope(name):
+        if reuse:
+            tf.get_variable_scope().reuse_variables()
+        else:
+            assert tf.get_variable_scope().reuse is False
+        dis_input = tf.concat([image, targets], 3)
+	#第1个卷积模块，输出尺度: 1*128*128*64
+        h0 = lrelu(conv2d(input_ = dis_input, output_dim = df_dim, kernel_size = 4, stride = 2, name='d_h0_conv'))
+	#第2个卷积模块，输出尺度: 1*64*64*128
+        h1 = lrelu(batch_norm(conv2d(input_ = h0, output_dim = df_dim*2, kernel_size = 4, stride = 2, name='d_h1_conv'), name='d_bn1'))
+	#第3个卷积模块，输出尺度: 1*32*32*256
+        h2 = lrelu(batch_norm(conv2d(input_ = h1, output_dim = df_dim*4, kernel_size = 4, stride = 2, name='d_h2_conv'), name='d_bn2'))
+	
+        #Ying
+        #minibatch
+        if minibatch_layer:
+            h3 = minibatch(h2)
+        else:
+            #第4个卷积模块，输出尺度: 1*32*32*512
+            h3 = lrelu(batch_norm(conv2d(input_ = h2, output_dim = df_dim*8, kernel_size = 4, stride = 1, name='d_h3_conv'), name='d_bn3'))
 	#最后一个卷积模块，输出尺度: 1*32*32*1
         output = conv2d(input_ = h3, output_dim = 1, kernel_size = 4, stride = 1, name='d_h4_conv')
         dis_out = tf.sigmoid(output) #在输出之前经过sigmoid层，因为需要进行log运算
         return dis_out
+
+#Ying
+#minbatch to fix model collapse
+def minibatch(input,num_kernels=512,kernel_dim=32):
+    x = linear(input, num_kernels*kernel_dim,scope='minibatch',stddev=0.02)
+    activation = tf.reshape(x,(-1,num_kernels,kernel_dim))
+    diffs = tf.expand_dims(activation,3)-tf.expand_dims(tf.transpose(activation,[1,2,0]),0)
+    abs_diffs = tf.reduce_sum(tf.abs(diffs),2)
+    minibatch_features = tf.reduce_sum(tf.exp(-abs_diffs),2)
+    return tf.concat([input,minibatch_features],1)
+
+
+
+def linear(input,output_dim,scope=None,stddev=1.0):#线性计算，计算y=wx+b
+    norm = tf.random_normal_initializer(stddev=stddev)
+    const = tf.constant_initializer(0.0)
+    with tf.variable_scope(scope or 'linear'):
+        w = tf.get_variable('w',[input.get_shape()[1],output_dim],initializer=norm)
+        b = tf.get_variable('b',[output_dim],initializer=const)
+        return tf.matmul(input,w)+b
