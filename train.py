@@ -79,8 +79,8 @@ def main(): #训练程序的主函数
     batchsize = tf.placeholder(tf.int32,name='batchsize')
  
     gen_label = generator(image=train_picture, gf_dim=64, reuse=False, name='generator',batchsize=batchsize) #得到生成器的输出
-    dis_real = discriminator(image=train_picture, targets=train_label, df_dim=64, reuse=False, name="discriminator") #判别器返回的对真实标签的判别结果
-    dis_fake = discriminator(image=train_picture, targets=gen_label, df_dim=64, reuse=True, name="discriminator") #判别器返回的对生成(虚假的)标签判别结果
+    dis_real = discriminator_minibatch(image=train_picture, targets=train_label, df_dim=64, reuse=False, name="discriminator") #判别器返回的对真实标签的判别结果
+    dis_fake = discriminator_minibatch(image=train_picture, targets=gen_label, df_dim=64, reuse=True, name="discriminator") #判别器返回的对生成(虚假的)标签判别结果
  
     gen_loss_GAN = tf.reduce_mean(-tf.log(dis_fake + EPS)) #计算生成器损失中的GAN_loss部分
     gen_loss_L1 = tf.reduce_mean(l1_loss(gen_label, train_label)) #计算生成器损失中的L1_loss部分
@@ -115,28 +115,41 @@ def main(): #训练程序的主函数
     saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=50) #模型保存器
  
     counter = 0 #counter记录训练步数
-    batch_size = 32
+    batch_size = 2
     train_picture_list = np.asarray(train_picture_list)
     num_whole = len(train_picture_list)
     gen_loss_value_save = []
     dis_loss_value_save = []
-    
- 
-    for epoch in range(args.epoch*num_whole*batch_size): #训练epoch数
+    gen_loss_savename = "./train_out/gen_loss_whole.txt"
+    dis_loss_savename = "./train_out/dis_loss_whole.txt"
+       
+    #read pictures, form a list, flip and rotate
+    picture_whole = [os.path.splitext(os.path.basename(x)) for x in train_picture_list] #获取不包含路径和格式的输入图片名称
+    #pdb.set_trace()
+    picture_whole = np.array(picture_whole)
+    picture_name = picture_whole[:,0]
+    picture_resize_list, label_resize_list = ImageReader_list(filename=picture_name, picture_path=args.train_picture_path, label_path=args.train_label_path, picture_format = args.train_picture_format, label_format = args.train_label_format, size = args.image_size)
+
+    #for epoch in range(args.epoch*num_whole*batch_size): #训练epoch数
+    for epoch in range(20001): #训练epoch数
         #shuffle(train_picture_list) #每训练一个epoch，就打乱一下输入的顺序
-        p_chose = train_picture_list[(np.random.rand(batch_size)*len(train_picture_list)).astype(int)]
+        #ap_chose = train_picture_list[(np.random.rand(batch_size)*len(train_picture_list)).astype(int)]
+        num_random = (np.random.rand(batch_size)*len(train_picture_list)).astype(int)
+        pdb.set_trace()
+        picture_resize = picture_resize_list[num_random]
+        label_resize = label_resize_list(num_random)
 
         #for step in range(batchsize): #每个训练epoch中的训练step数
         counter += 1
         step = counter
         #picture_name, _ = os.path.splitext(os.path.basename(train_picture_list[step])) #获取不包含路径和格式的输入图片名称
-        picture_whole = [os.path.splitext(os.path.basename(x)) for x in p_chose] #获取不包含路径和格式的输入图片名称
+        #picture_whole = [os.path.splitext(os.path.basename(x)) for x in p_chose] #获取不包含路径和格式的输入图片名称
         #pdb.set_trace()
-        picture_whole = np.array(picture_whole)
-        picture_name = picture_whole[:,0]
+        #picture_whole = np.array(picture_whole)
+        #picture_name = picture_whole[:,0]
         #pdb.set_trace()
         #读取一张训练图片，一张训练标签，以及相应的高和宽
-        picture_resize, label_resize, picture_height, picture_width = ImageReader(filename=picture_name, picture_path=args.train_picture_path, label_path=args.train_label_path, picture_format = args.train_picture_format, label_format = args.train_label_format, size = args.image_size, batchsize= batch_size)
+        #picture_resize, label_resize, picture_height, picture_width = ImageReader(filename=picture_name, picture_path=args.train_picture_path, label_path=args.train_label_path, picture_format = args.train_picture_format, label_format = args.train_label_format, size = args.image_size, batchsize= batch_size)
         #batch_picture = np.expand_dims(np.array(picture_resize).astype(np.float32), axis = 0) #填充维度
         #batch_label = np.expand_dims(np.array(label_resize).astype(np.float32), axis = 0) #填充维度
         #feed_dict = { train_picture : batch_picture, train_label : batch_label } #构造feed_dict
@@ -155,12 +168,13 @@ def main(): #训练程序的主函数
             picture_resize = picture_resize[0]
             gen_label_value = gen_label_value[0]
             label_resize = label_resize[0]
-            write_image = get_write_picture(picture_resize, gen_label_value, label_resize, picture_height, picture_width) #得到训练的可视化结果
+            write_image = get_write_picture(picture_resize, gen_label_value, label_resize, 238, 238) #得到训练的可视化结果
             write_image_name = args.out_dir + "/out"+ str(counter) + ".png" #待保存的训练可视化结果路径与名称
             cv2.imwrite(write_image_name, write_image) #保存训练的可视化结果
         print('epoch {:d} step {:d} \t gen_loss = {:.3f}, dis_loss = {:.3f}'.format(epoch, step, gen_loss_value, dis_loss_value))
-    gen_loss_savename = "./train_out/gen_loss_whole.txt"
-    dis_loss_savename = "./train_out/dis_loss_whole.txt"
+        if counter % 10000 ==0:
+            np.savetxt(gen_loss_savename,gen_loss_value_save)
+            np.savetxt(dis_loss_savename,dis_loss_value_save)
     np.savetxt(gen_loss_savename,gen_loss_value_save)
     np.savetxt(dis_loss_savename,dis_loss_value_save)
     print("loss saved")

@@ -136,7 +136,7 @@ def discriminator(image, targets, df_dim=64, reuse=False, name="discriminator", 
 
 #定义判别器
 #Ying minbatch: failed->.->.
-def discriminator_minbatch(image, targets, df_dim=64, reuse=False, name="discriminator", minibatch_layer=False):
+def discriminator_minibatch(image, targets, df_dim=64, reuse=False, name="discriminator", minibatch_layer=False):
     with tf.variable_scope(name):
         if reuse:
             tf.get_variable_scope().reuse_variables()
